@@ -252,17 +252,16 @@ class CheckRedirectsDiffBuilder(Builder):
         src_path = Path(self.app.srcdir)
 
         rediraffe_redirects = self.app.config.rediraffe_redirects
-        redirects_path = None
         if isinstance(rediraffe_redirects, dict):
             pass
         elif isinstance(rediraffe_redirects, str):
-            redirects_path = Path(src_path) / rediraffe_redirects
-            if not redirects_path.is_file():
+            path = Path(src_path) / rediraffe_redirects
+            if not path.is_file():
                 logger.error(red("rediraffe: rediraffe_redirects file does not exist."))
                 self.app.statuscode = 1
                 return
             try:
-                rediraffe_redirects = create_graph(redirects_path)
+                rediraffe_redirects = create_graph(path)
             except ExtensionError as e:
                 self.app.statuscode = 1
                 return
@@ -310,6 +309,7 @@ class CheckRedirectsDiffBuilder(Builder):
                 continue
             if path_rename_to == None:
                 continue
+
             rename_hints[path_rename_from] = (path_rename_to, perc)
 
         # run git diff
@@ -338,29 +338,13 @@ class CheckRedirectsDiffBuilder(Builder):
                 logger.error(err_msg)
                 self.app.statuscode = 1
 
-        with redirects_path.open("a") as redirects_file:
-
-            for renamed_file in rename_hints:
-                hint_to, perc = rename_hints[renamed_file]
-
-                if renamed_file in absolute_redirects:
-                    logger.info(
-                        f"renamed file {renamed_file} redirects to {absolute_redirects[renamed_file]}."
-                    )
-                    continue
-
-                if self.name == "rediraffewritediff":
-                    if perc >= self.app.config.rediraffe_auto_redirect_perc:
-                        rel_rename_from = f'"{str(PurePosixPath(renamed_file.relative_to(src_path)))}"'
-                        rel_rename_to = (
-                            f'"{str(PurePosixPath(hint_to.relative_to(src_path)))}"'
-                        )
-                        redirects_file.write(f"{rel_rename_from} {rel_rename_to}\n")
-                        logger.info(
-                            f"{green('(okay)')} Renamed file {rel_rename_from} has been redirected to {rel_rename_to} in your redirects file!"
-                        )
-                        continue
-
+        for renamed_file in rename_hints:
+            hint_to, perc = rename_hints[renamed_file]
+            if renamed_file in absolute_redirects:
+                logger.info(
+                    f"renamed file {renamed_file} redirects to {absolute_redirects[renamed_file]}."
+                )
+            else:
                 err_msg = (
                     f"{red('(broken)')} {renamed_file} was deleted but is not redirected!"
                     f" Hint: This file was renamed to {hint_to} with a similarity of {perc}%."
@@ -384,29 +368,12 @@ class CheckRedirectsDiffBuilder(Builder):
         return []
 
 
-class WriteRedirectsDiffBuilder(CheckRedirectsDiffBuilder):
-    name = "rediraffewritediff"
-
-    def init(self) -> None:
-        rediraffe_redirects = self.app.config.rediraffe_redirects
-        if not isinstance(rediraffe_redirects, str):
-            logger.error(
-                f"{red('(broken)')} Automatic redirects is only available with a redirects file."
-            )
-            self.app.statuscode = 1
-            return
-
-        super().init()
-
-
 def setup(app: Sphinx) -> Dict[str, Any]:
-    app.add_config_value("rediraffe_redirects", "", None)
+    app.add_config_value("rediraffe_redirects", None, None)
     app.add_config_value("rediraffe_branch", "", None)
     app.add_config_value("rediraffe_template", None, None)
-    app.add_config_value("rediraffe_auto_redirect_perc", 100, None)
 
     app.add_builder(CheckRedirectsDiffBuilder)
-    app.add_builder(WriteRedirectsDiffBuilder)
     app.connect("build-finished", build_redirects)
 
     return {
